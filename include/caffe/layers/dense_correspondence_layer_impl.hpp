@@ -900,7 +900,7 @@ public:
 
             if (allowMatchless) {
                 if (!foundMatch && vertAValid) {
-                    uB = vB = -1;
+                    //uB = vB = -1;
                     foundMatch = true;
                 }
             }

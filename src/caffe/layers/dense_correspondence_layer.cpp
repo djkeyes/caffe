@@ -258,7 +258,7 @@ inline DenseCorrespondenceLayerImplBase<Dtype> * createImplementation(const Dens
         break
 
     switch (param.positive_selection()) {
-//        POSITIVE_SELECTION_CASE(ALL_POSITIVES,AllPositiveMatchesSelector<Dtype>(bottom[0]->width(),bottom[0]->height()));
+        POSITIVE_SELECTION_CASE(ALL_POSITIVES,AllPositiveMatchesSelector<Dtype>(bottom[0]->width(),bottom[0]->height()));
         POSITIVE_SELECTION_CASE(RANDOM_POSITIVES,RandomPositiveMatchesSelector<Dtype>(param.positive_samples()));
 
 //    case DenseCorrespondenceParameter_PositiveSelection_ALL_POSITIVES:

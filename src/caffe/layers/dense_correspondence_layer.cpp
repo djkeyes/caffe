@@ -221,6 +221,7 @@ inline DenseCorrespondenceLayerImplBase<Dtype> * createImplementation(const Dens
 
 //        NEGATIVE_SELECTION_CASE(ALL_NEGATIVES,AllNegativesSelector<Dtype>(bottom[0]->width(),bottom[0]->height()));
         NEGATIVE_SELECTION_CASE(RANDOM_NEGATIVES,RandomNegativesSelector<Dtype>(param.negative_samples()));
+        NEGATIVE_SELECTION_CASE(OBSERVED_NEGATIVES,ObservedNegativesSelector<Dtype>(param.negative_samples()));
 //        NEGATIVE_SELECTION_CASE(HARD_NEGATIVES,HardNegativesSelector<Dtype>(param.negative_samples()));
 
 //    case DenseCorrespondenceParameter_NegativeSelection_ALL_NEGATIVES:

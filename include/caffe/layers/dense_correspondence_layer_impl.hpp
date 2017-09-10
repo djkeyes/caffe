@@ -1,6 +1,7 @@
 #include <cmath>
 #include <numeric>
 #include <vector>
+#include <list>
 
 #include "caffe/blob.hpp"
 
@@ -524,6 +525,7 @@ public:
         const_cast<TransformationMatrix<Dtype> &>(transformationGlobalToB_).apply(_ptA,_ptBLocal);
 
         if (ptBLocal[2] < 0) {
+            //std::cout << "behind viewing frustrum" << std::endl;
             return false;
         }
 
@@ -725,7 +727,7 @@ inline bool checkForMatch(const int uA, const int vA,
 
     // check if point is within interpolation bounds
     if (uB < 0 || uB >= width-2 || vB < 0 || vB >= height-2) {
-        //std::cout << "out of frame" << std::endl;
+       // std::cout << "out of frame" << std::endl;
         return false;
     }
 
@@ -741,7 +743,7 @@ inline bool checkForMatch(const int uA, const int vA,
     assert(vB >= 0);
     assert(vB < height-2);
     if (uB < 0 || uB >= width-2 || vB < 0 || vB >= height-2) {
-        std::cout << "out of frame" << std::endl;
+        //std::cout << "out of frame" << std::endl;
         return false;
     }
 
@@ -751,7 +753,7 @@ inline bool checkForMatch(const int uA, const int vA,
 
     // make sure B is valid
     if (std::isnan(ptB[0])) {
-        //std::cout << "invalid B" << std::endl;
+        std::cout << "invalid B" << std::endl;
         return false;
     }
 
@@ -761,13 +763,13 @@ inline bool checkForMatch(const int uA, const int vA,
 
     // make sure they're the same point
     if ( distAB > 0.005*0.005) {
-        //std::cout << "too far" << std::endl;
+        std::cout << "too far" << std::endl;
         return false;
     }
-
-//    std::cout << "accepting " << distAB << std::endl;
-//    std::cout << ptA[0] << ", " << ptA[1] << ", " << ptA[2] << std::endl;
-//    std::cout << ptB[0] << ", " << ptB[1] << ", " << ptB[2] << std::endl;
+    
+    //std::cout << "accepting " << distAB << std::endl;
+    //std::cout << ptA[0] << ", " << ptA[1] << ", " << ptA[2] << std::endl;
+    //std::cout << ptB[0] << ", " << ptB[1] << ", " << ptB[2] << std::endl;
 
     return true;
 
@@ -882,6 +884,9 @@ public:
                       bool & vertAValid) {
 
         // -=-=-=-=-=-=-=-=-=-=- check every vertex for match -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+        if (y_ == height) {
+            return false;
+        }
         bool foundMatch = false;
         do {
 
@@ -900,7 +905,7 @@ public:
 
             if (allowMatchless) {
                 if (!foundMatch && vertAValid) {
-                    //uB = vB = -1;
+                    uB = vB = -1;
                     foundMatch = true;
                 }
             }
@@ -1032,7 +1037,9 @@ public:
     inline void initFrame(const Dtype * repB,
                           const int width,
                           const int height,
-                          const int repChannels) { }
+                          const int repChannels,
+                          const Dtype * vertsA,
+                          const Dtype * vertsB) { }
 
     inline void initPoint(const Dtype * representationA) {
         x_ = 0;
@@ -1114,7 +1121,9 @@ public:
     inline void initFrame(const Dtype * repB,
                           const int width,
                           const int height,
-                          const int repChannels) { }
+                          const int repChannels,
+                          const Dtype * vertsA,
+                          const Dtype * vertsB) { }
 
     inline void initPoint(const Dtype * representationA) {
 
@@ -1313,7 +1322,9 @@ public:
     inline void initFrame(const Dtype * repB,
                           const int width,
                           const int height,
-                          const int repChannels) {
+                          const int repChannels,
+                          const Dtype * vertsA,
+                          const Dtype * vertsB) {
 
         std::cout << "building tree" << std::endl;
         embeddingCloud_.reset(new KDEmbeddingCloud(repB,width,height,repChannels));
@@ -1436,6 +1447,116 @@ private:
     std::vector<int> matchIndices_;
     std::vector<Dtype> matchDistances_;
 
+    int k_;
+
+    const int K_;
+
+};
+
+
+template <typename Dtype>
+class ObservedNegativesSelector {
+public:
+
+    explicit ObservedNegativesSelector(const int K) : K_(K) { }
+
+    inline void initFrame(const Dtype * repB,
+                          const int width,
+                          const int height,
+                          const int repChannels,
+                          const Dtype * vertsA,
+                          const Dtype * vertsB) {
+        // find observed (non-nan) points in B
+        observedPts_.clear();
+        for (int i=0; i < width*height; ++i) {
+            // only need to check the first channel
+            if (!std::isnan(vertsB[i])) {
+                observedPts_.push_back(i);
+            }
+        }
+        removedInLastSample_.clear();
+        std::cout << "Observed " << observedPts_.size() << " points in frame B." << std::endl;
+    }
+
+    inline void initPoint(const Dtype * representationA) {
+        k_ = 0;
+        observedPts_.insert(observedPts_.end(), removedInLastSample_.begin(), removedInLastSample_.end());
+        removedInLastSample_.clear();
+    }
+
+    inline int totalPossibleMatches() const {
+        return K_;
+    }
+
+    bool getNextMatch(int & uBNeg, int & vBNeg,
+                      const int uBPos, const int vBPos,
+                      const Dtype * repB,
+                      const int width, const int height,
+                      const int repChannels,
+                      const Dtype ignoreMarginSquared,
+                      const Dtype * representationA,
+                      std::vector<Dtype> & representationB,
+                      Dtype * diffAB) {
+
+        bool foundMatch = false;
+        std::list<int> tooClosePts;
+        do {
+
+            if (k_ == K_ || observedPts_.empty()) {
+                break;
+            }
+
+            boost::uniform_int<> unif_dist(0, observedPts_.size()-1);
+            int to_remove = unif_dist(*caffe_rng());
+            int point = observedPts_[to_remove];
+            uBNeg = point % width;
+            vBNeg = point / width;
+            
+            // swap to end and remove
+            std::swap(observedPts_[to_remove], observedPts_[observedPts_.size()-1]);
+            observedPts_.pop_back();
+
+            if ( (uBNeg-uBPos)*(uBNeg-uBPos) + (vBNeg-vBPos)*(vBNeg-vBPos) > 2*2) {
+
+                for (int c=0; c<repChannels; ++c) {
+                    representationB[c] = repB[uBNeg + width*(vBNeg + height*c)];
+                }
+                caffe_sub(repChannels,representationA,representationB.data(),diffAB);
+
+                if (std::isfinite(ignoreMarginSquared)) {
+
+                    const Dtype distSquared = caffe_cpu_dot(repChannels,diffAB,diffAB);
+                    if (distSquared < ignoreMarginSquared) {
+                        foundMatch = true;
+                    } else {
+                        // by advancing k, the learning will behave as if this patch
+                        // was picked but had no effect
+                        ++k_;
+                    }
+
+                } else {
+                    foundMatch = true;
+                }
+                removedInLastSample_.push_back(point);
+            } else {
+                tooClosePts.push_back(point);
+            }
+
+        } while (!foundMatch);
+        
+        observedPts_.insert(observedPts_.end(), tooClosePts.begin(), tooClosePts.end());
+
+        ++k_;
+
+        return foundMatch;
+
+    }
+
+private:
+
+    vector<int> observedPts_;
+    list<int> removedInLastSample_;
+    
     int k_;
 
     const int K_;
@@ -2627,7 +2748,8 @@ public:
                     const Dtype weightB = pixelwiseWeighting.positiveWeightB(posSampleBData[0 + 2*i],
                                                                              posSampleBData[1 + 2*i]);
                     const Dtype rawLoss = posLossFunctor_.loss(posDiffData + i*repChannels,repChannels);
-//                    std::cout << i << ": " << weightA << "*" << weightB << "*" << rawLoss <<
+//                    std::cout << i << ": " << weightA << "*" << weightB << "*" << rawLoss << 
+//                                 "=loss(" << (posDiffData + i*repChannels,repChannels) << ")" <<
 //                                 "(" << posSampleAData[0 + 2*i] << ", " << posSampleAData[1 + 2*i] << " -- " <<
 //                                 posSampleBData[0 + 2*i] << ", " << posSampleBData[1 + 2*i] << ")" << std::endl;
 
@@ -2641,7 +2763,7 @@ public:
             }
 
             // -=-=-=-=- negatives -=-=-=-=-
-            negativeSelector_.initFrame(repB,repWidth,repHeight,repChannels);
+            negativeSelector_.initFrame(repB,repWidth,repHeight,repChannels,vertsA,vertsB);
 
             for (int i=0; i<positiveIndex; ++i) {
 

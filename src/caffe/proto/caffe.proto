@@ -714,6 +714,7 @@ message DenseCorrespondenceParameter {
     ALL_NEGATIVES = 0;
     RANDOM_NEGATIVES = 1;
     HARD_NEGATIVES = 2;
+    OBSERVED_NEGATIVES = 3;
   }
   optional NegativeSelection negative_selection = 15 [default = HARD_NEGATIVES];
   optional uint32 negative_samples = 16 [default = 4];
